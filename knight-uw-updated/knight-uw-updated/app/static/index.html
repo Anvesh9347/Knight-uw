@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Submission Review</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1c2430; --mute:#667085; --line:#e3e7ee; --accent:#2457d6;
+          --pass:#17803d; --flag:#b42318; --unk:#b54708; --pass-bg:#e7f6ec; --flag-bg:#fdecea; --unk-bg:#fff4e0; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:14px 24px; background:#fff; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+  header h1 { font-size:17px; margin:0; } header small { color:var(--mute); }
+  main { max-width:1100px; margin:0 auto; padding:20px 24px 60px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  button { font:inherit; padding:7px 14px; border-radius:7px; border:1px solid var(--line); background:#fff; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  textarea, input[type=text] { width:100%; font:inherit; padding:8px; border:1px solid var(--line); border-radius:7px; }
+  textarea { min-height:90px; resize:vertical; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+  .badge { display:inline-block; padding:2px 10px; border-radius:99px; font-size:12px; font-weight:600; }
+  .PASS,.KNOWN { color:var(--pass); background:var(--pass-bg); } .FLAG,.CONFLICT,.NEEDS_REVIEW { color:var(--flag); background:var(--flag-bg); }
+  .UNKNOWN,.INVALID,.MISSING { color:var(--unk); background:var(--unk-bg); } .READY_FOR_REVIEW { color:var(--pass); background:var(--pass-bg); }
+  .banner { padding:10px 14px; border-radius:8px; margin-bottom:14px; }
+  .banner.info { background:#eaf0ff; color:#1b3a8a; } .banner.err { background:var(--flag-bg); color:var(--flag); } .banner.ok { background:var(--pass-bg); color:var(--pass); }
+  .rule { display:grid; grid-template-columns:70px 1fr; gap:10px; padding:10px 0; border-top:1px solid var(--line); }
+  .rule:first-of-type { border-top:0; } .rule .why { color:var(--mute); font-size:13px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th,td { text-align:left; padding:8px 6px; border-top:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mute); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.03em; border-top:0; }
+  code { background:#f1f3f7; padding:1px 5px; border-radius:4px; font-size:12.5px; }
+  .ev { font-size:12.5px; color:var(--mute); margin-top:4px; } .ev q { color:var(--ink); }
+  .orig { background:#fffbe6; border:1px solid #f1e3a1; border-radius:6px; padding:6px 8px; margin-top:6px; font-size:12.5px; }
+  details summary { cursor:pointer; color:var(--accent); font-size:12.5px; }
+  .hidden { display:none; } .mute { color:var(--mute); font-size:13px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; } @media(max-width:800px){ .grid2{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+<header><h1>Commercial auto submission review <small>· fictional exercise · draft only, nothing is sent</small></h1>
+  <span class="mute" id="llmInfo"></span></header>
+<main>
+  <div class="card" id="uploadCard">
+    <h2>1 · Load one submission packet</h2>
+    <div class="grid2">
+      <div><label class="mute">Packet files (PDF, CSV, TXT/EML) — select all files of one packet</label><br>
+        <input type="file" id="files" multiple accept=".pdf,.csv,.txt,.eml"><div id="fileList" class="mute"></div></div>
+      <div><label class="mute">…or paste the broker email</label>
+        <textarea id="emailText" placeholder="Paste broker email text here"></textarea></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="go">Process packet</button>
+      <button id="reset">Clear / new packet</button>
+    </div>
+  </div>
+
+  <div id="status"></div>
+  <div id="results" class="hidden">
+    <div class="card"><div class="row"><h2 style="margin:0">Overall</h2><span id="overall" class="badge"></span>
+      <span class="mute" id="disclaimer"></span></div></div>
+    <div class="card"><h2>Customer-facing result (based on rule checks)</h2>
+      <p id="customerResult" aria-live="polite"></p>
+      <div class="mute">This preliminary result is for human review only; it is not a coverage, pricing or binding decision.</div>
+    </div>
+    <div class="card"><h2>2 · Rule checks (deterministic code)</h2><div id="rules"></div></div>
+    <div class="card"><h2>3 · Extracted fields &amp; evidence</h2><div id="fields"></div></div>
+    <div class="card"><h2>Attachment inventory</h2><div id="inventory"></div></div>
+    <div class="card"><h2>4 · AI underwriter summary and draft broker email</h2><div id="narr"></div></div>
+  </div>
+</main>
+<script>
+let sub = null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const show = v => v === null || v === undefined ? '<i>null</i>' : esc(typeof v === 'boolean' ? (v ? 'true' : 'false') : v);
+const banner = (cls, msg) => $('status').innerHTML = msg ? `<div class="banner ${cls}">${esc(msg)}</div>` : '';
+
+fetch('/api/health').then(r => r.json()).then(h => $('llmInfo').textContent = `LLM: ${h.llm.provider} / ${h.llm.model}`);
+$('files').onchange = () => $('fileList').textContent = [...$('files').files].map(f => f.name).join(', ');
+
+$('reset').onclick = () => {   // wipe all UI state so no applicant data lingers
+  sub = null; $('files').value = ''; $('fileList').textContent = ''; $('emailText').value = '';
+  $('results').classList.add('hidden'); banner('', '');
+};
+
+$('go').onclick = async () => {
+  const fd = new FormData();
+  [...$('files').files].forEach(f => fd.append('files', f));
+  fd.append('email_text', $('emailText').value);
+  $('results').classList.add('hidden'); sub = null;
+  $('go').disabled = true; banner('info', 'Processing: reading files and extracting fields…');
+  try {
+    const r = await fetch('/api/submissions', {method:'POST', body:fd});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.statusText);
+    sub = data; render();
+    const failed = sub.fields.some(f =>
+      (f.extracted.extraction_issue && f.extracted.extraction_issue.startsWith('model extraction failed')) ||
+      f.extracted.notes.some(note => note.startsWith('LLM extraction unavailable')));
+    const failure = sub.fields.flatMap(f =>
+      [f.extracted.extraction_issue, ...f.extracted.notes].filter(Boolean))
+      .find(message => message.startsWith('model extraction failed') ||
+        message.startsWith('LLM extraction unavailable'));
+    banner(failed ? 'err' : 'ok', failed
+      ? `Model extraction failed for some sources. Verified labeled values and deterministic attachment results are shown; fields without a verified value remain unresolved. ${failure}`
+      : 'Extraction complete.');
+    generateNarrative();
+  } catch (e) { banner('err', 'Processing failed: ' + e.message); }
+  $('go').disabled = false;
+};
+
+async function generateNarrative() {
+  $('narr').innerHTML = '<span class="mute">Generating summary and draft email with the model…</span>';
+  try {
+    const r = await fetch(`/api/submissions/${sub.id}/narrative`, {method:'POST'});
+    sub = await r.json(); render();
+  } catch (e) { $('narr').innerHTML = `<div class="banner err">Narrative request failed: ${esc(e.message)}</div>`; }
+}
+
+function render() {
+  $('results').classList.remove('hidden');
+  $('overall').className = 'badge ' + sub.overall_status; $('overall').textContent = sub.overall_status;
+  $('disclaimer').textContent = sub.disclaimer;
+  $('customerResult').textContent = sub.customer_message;
+
+  $('rules').innerHTML = sub.rules.map(r => `
+    <div class="rule"><div><span class="badge ${r.status}">${r.status}</span></div>
+    <div><b>${r.id} · ${esc(r.name)}</b><div>${esc(r.reason)}</div>
+    <div class="why">Inputs: ${Object.entries(r.inputs).map(([k, v]) =>
+      `<code>${k} = ${show(v.value)}</code> <span class="badge ${v.state}">${v.state}</span>${v.origin === 'human_override' ? ' <span class="badge FLAG">human override</span>' : ''}`).join(' &nbsp; ')}</div></div></div>`).join('');
+
+  $('fields').innerHTML = `<table><tr><th>Field</th><th>Effective value</th><th>Evidence</th><th></th></tr>` +
+    sub.fields.map(f => fieldRow(f)).join('') + '</table>';
+
+  $('inventory').innerHTML = `<table><tr><th>File</th><th>Type</th><th>Readable</th><th>Note</th></tr>` +
+    sub.inventory.map(i => `<tr><td>${esc(i.filename)}</td><td>${i.type}</td><td>${i.readable ? 'yes' : '<b>no</b>'}</td><td>${esc(i.note)}</td></tr>`).join('') + '</table>';
+  renderNarr();
+}
+
+function evHtml(e) {
+  return `<div class="ev"><code>${esc(e.source_file)}</code> · ${esc(e.locator)}` +
+    (e.excerpt ? ` · <q>${esc(e.excerpt)}</q>` : '') + (e.observation ? ` · ${esc(e.observation)}` : '') +
+    (e.note ? ` · <i>${esc(e.note)}</i>` : '') + '</div>';
+}
+
+function fieldRow(f) {
+  const x = f.extracted, eff = f.effective, ov = f.override;
+  let h = `<tr><td><b>${f.name}</b></td><td>${show(eff.value)} <span class="badge ${eff.state}">${eff.state}</span>` +
+    (ov ? ' <span class="badge FLAG">human override</span>' : '') + (x.extraction_issue ? `<div class="ev">${esc(x.extraction_issue)}</div>` : '') + '</td><td>';
+  if (x.state === 'CONFLICT') h += '<div class="ev"><b>Sources disagree — alternatives (no source preferred):</b></div>';
+  h += x.evidence.map(evHtml).join('');
+  if (x.state === 'MISSING' || (!x.evidence.length)) h += `<div class="ev">Inspected: ${esc(x.inspected_sources)}</div>`;
+  if (x.notes.length) h += `<details><summary>notes (${x.notes.length})</summary>${x.notes.map(n => `<div class="ev">${esc(n)}</div>`).join('')}</details>`;
+  if (ov) h += `<div class="orig"><b>Original extracted:</b> ${show(ov.original.value)} (${ov.original.state}) — evidence above is preserved.<br>
+    <b>Override:</b> ${show(ov.value)} · ${esc(ov.reason || 'no reason given')} · ${esc(ov.at)}</div>`;
+  h += `</td><td><button onclick="editField('${f.name}')">Correct</button>` +
+       (ov ? `<br><button style="margin-top:4px" onclick="clearOv('${f.name}')">Undo</button>` : '') + '</td></tr>';
+  h += `<tr id="edit-${f.name}" class="hidden"><td colspan="4"><div class="row">
+    <input type="text" id="val-${f.name}" placeholder="Corrected value (e.g. 2026-11-01, CA, 3, 150, Yes/No)" style="flex:2">
+    <input type="text" id="why-${f.name}" placeholder="Reason (optional)" style="flex:2">
+    <button class="primary" onclick="saveOv('${f.name}')">Apply &amp; rerun checks</button></div><div id="err-${f.name}" class="ev" style="color:var(--flag)"></div></td></tr>`;
+  return h;
+}
+
+const editField = n => $('edit-' + n).classList.toggle('hidden');
+async function saveOv(n) {
+  const r = await fetch(`/api/submissions/${sub.id}/overrides`, {method:'POST', headers:{'content-type':'application/json'},
+    body: JSON.stringify({field:n, value:$('val-' + n).value, reason:$('why-' + n).value})});
+  const d = await r.json();
+  if (!r.ok) { $('err-' + n).textContent = d.error; return; }
+  sub = d; render();
+}
+async function clearOv(n) { sub = await (await fetch(`/api/submissions/${sub.id}/overrides/${n}`, {method:'DELETE'})).json(); render(); }
+
+function renderNarr() {
+  const n = sub.narrative;
+  if (!n) { $('narr').innerHTML = '<span class="mute">Not generated yet.</span>'; return; }
+  let h = '';
+  if (n.status === 'error') h += `<div class="banner err">Model call failed: ${esc(n.error)}<br>The summary is unavailable. The email below is a plain template (NOT AI-generated) built from the deterministic request list.</div>`;
+  if (n.stale) h += '<div class="banner info">Checks changed after a correction — this text is out of date. Regenerate it.</div>';
+  if (n.summary) h += `<p><b>Summary</b> <span class="mute">(AI-generated, ${esc(sub.llm.model)})</span><br>${esc(n.summary)}</p>`;
+  h += `<p><b>Draft email to broker</b> <span class="mute">— editable; this tool never sends email</span></p>
+    <input type="text" id="mailSubject" value="${esc(n.email_subject)}"><br><br>
+    <textarea id="mailBody" style="min-height:220px">${esc(n.email_body)}</textarea>
+    <div class="row" style="margin-top:8px"><button id="regen" onclick="generateNarrative()">Regenerate</button>
+    <button onclick="navigator.clipboard.writeText($('mailSubject').value + '\\n\\n' + $('mailBody').value)">Copy draft</button></div>`;
+  $('narr').innerHTML = h;
+}
+</script>
+</body>
+</html>
