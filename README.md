@@ -63,3 +63,17 @@ Key decisions
 `tests/test_rules.py` (missing info, conflict, unequal counts, 150 / 150.0 / 150.1, R1 precedence),
 `tests/test_normalize.py`, `tests/test_pipeline.py` (SUB-A/B/C end to end with a stub model, overrides keep original
 evidence, packet independence, hallucination/injection rejection, model-failure behaviour).
+
+
+
+Final Output and Summary
+<img width="1917" height="967" alt="image" src="https://github.com/user-attachments/assets/54d30fdc-80e7-4b06-8915-9e5d1b54638a" />
+<img width="1917" height="961" alt="image" src="https://github.com/user-attachments/assets/a96c5f22-71f3-4f88-b84c-aefb3052d122" />
+<img width="1917" height="967" alt="image" src="https://github.com/user-attachments/assets/593d2250-ff06-41b4-9485-bc38b28622e2" />
+<img width="1917" height="967" alt="image" src="https://github.com/user-attachments/assets/f97714f4-8d74-40cf-a137-eb4553e691a0" />
+
+
+
+
+
+
